@@ -42,23 +42,19 @@ def process_message(telegram_id: int, user_message: str, user_name: str = "") ->
     memory_facts = db.get_memory_facts(telegram_id)
     session_messages = db.get_session_messages(session["id"], limit=MAX_CONTEXT_MESSAGES)
 
-    # Резюме прошлых сессий
-    past_sessions = db.get_session_history(telegram_id, limit=5)
+    # Резюме прошлых сессий (только 2 последних)
+    past_sessions = db.get_session_history(telegram_id, limit=3)
     summaries = [
         s.get("summary", "")
         for s in past_sessions
         if s["id"] != session["id"] and s.get("summary")
     ]
-    history_summary = "\n".join(f"- {s}" for s in summaries[-3:]) if summaries else ""
+    history_summary = "\n".join(f"- {s}" for s in summaries[-2:]) if summaries else ""
 
-    # База знаний
-    knowledge_text = db.get_all_knowledge_for_prompt()
-
-    # 3. Системный промпт
+    # 3. Системный промпт (без базы знаний — экономия токенов)
     system_prompt = build_system_prompt(
         memory_facts=memory_facts,
         session_history_summary=history_summary,
-        knowledge_base_text=knowledge_text,
     )
 
     # 4. Сообщения для AI
@@ -73,6 +69,7 @@ def process_message(telegram_id: int, user_message: str, user_name: str = "") ->
             system_prompt=system_prompt,
             provider=provider_key,
             model=ai_model,
+            max_tokens=800,  # короткие ответы терапевта
         )
     except Exception as e:
         logger.error(f"AI error: {e}")
@@ -92,9 +89,9 @@ def process_message(telegram_id: int, user_message: str, user_name: str = "") ->
     db.save_message(session["id"], "user", user_message)
     db.save_message(session["id"], "assistant", response)
 
-    # 7. Извлечение фактов (каждые 10 сообщений)
+    # 7. Извлечение фактов (каждые 20 сообщений — экономия)
     total = len(session_messages) + 2
-    if total % 10 == 0 and total > 0:
+    if total % 20 == 0 and total > 0:
         _extract_memory(telegram_id, session["id"])
 
     return response
