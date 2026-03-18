@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import (
     TELEGRAM_BOT_TOKEN,
-    TELEGRAM_ALLOWED_USERS,
+    BOT_PASSWORD,
     WEBHOOK_SECRET,
     VOICE_ENABLED,
 )
@@ -24,6 +24,8 @@ from core.voice import speech_to_text, text_to_speech_buffer
 from core.ai_provider import list_providers
 from storage.supabase_client import (
     get_or_create_profile,
+    is_authenticated,
+    set_authenticated,
     get_user_preferences,
     update_profile_preferences,
     create_session,
@@ -109,12 +111,21 @@ def get_file_url(file_id: str) -> str:
     return f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
 
 
-# ── Проверка доступа ──
+# ── Проверка доступа (по паролю) ──
 
-def is_authorized(user_id: int) -> bool:
-    if not TELEGRAM_ALLOWED_USERS:
+def check_auth(user_id: int) -> bool:
+    """Проверить, авторизован ли пользователь (пароль уже введён ранее)."""
+    if not BOT_PASSWORD:
+        return True  # Пароль не задан — доступ открыт
+    return is_authenticated(user_id)
+
+
+def try_password(user_id: int, first_name: str, text: str) -> bool:
+    """Проверить пароль. Если верный — запомнить пользователя навсегда."""
+    if text.strip() == BOT_PASSWORD:
+        set_authenticated(user_id, first_name)
         return True
-    return user_id in TELEGRAM_ALLOWED_USERS
+    return False
 
 
 # ── Обработка команд ──
@@ -344,7 +355,7 @@ class handler(BaseHTTPRequestHandler):
         if "callback_query" in update:
             cq = update["callback_query"]
             user_id = cq["from"]["id"]
-            if not is_authorized(user_id):
+            if not check_auth(user_id):
                 return
             handle_callback(
                 callback_id=cq["id"],
@@ -365,8 +376,17 @@ class handler(BaseHTTPRequestHandler):
         chat_id = message["chat"]["id"]
         first_name = user.get("first_name", "")
 
-        if not is_authorized(user_id):
-            send_message(chat_id, "⛔ Доступ ограничен.")
+        # Проверка аутентификации
+        if not check_auth(user_id):
+            text = message.get("text", "")
+            # Проверяем, не пароль ли это
+            if text and try_password(user_id, first_name, text):
+                send_message(chat_id, (
+                    f"Добро пожаловать, {first_name}! 🔓\n\n"
+                    "Авторизация пройдена. Теперь отправь /start чтобы начать."
+                ))
+            else:
+                send_message(chat_id, "🔐 Это приватный бот. Введите пароль:")
             return
 
         # Голосовое сообщение
@@ -412,7 +432,7 @@ class handler(BaseHTTPRequestHandler):
                     send_message(chat_id, f"✅ Знание добавлено: {parts[1].strip()}")
                     return
                 except Exception:
-                    pass  # Не формат знания, обрабатываем как обычный текст
+                    pass
 
             handle_text(chat_id, user_id, first_name, text)
 

@@ -39,6 +39,24 @@ def get_or_create_profile(telegram_id: int, name: str = "") -> dict:
     return result.data[0]
 
 
+def is_authenticated(telegram_id: int) -> bool:
+    """Проверить, авторизован ли пользователь."""
+    db = _get_client()
+    result = db.table("user_profiles").select("authenticated").eq("telegram_id", telegram_id).execute()
+    if result.data:
+        return result.data[0].get("authenticated", False)
+    return False
+
+
+def set_authenticated(telegram_id: int, name: str = ""):
+    """Пометить пользователя как авторизованного."""
+    profile = get_or_create_profile(telegram_id, name)
+    db = _get_client()
+    db.table("user_profiles").update(
+        {"authenticated": True}
+    ).eq("telegram_id", telegram_id).execute()
+
+
 def get_user_preferences(telegram_id: int) -> dict:
     profile = get_or_create_profile(telegram_id)
     return json.loads(profile.get("preferences", "{}"))

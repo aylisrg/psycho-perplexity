@@ -10,11 +10,9 @@ def get_env(key: str, default: str = "") -> str:
 
 # Telegram
 TELEGRAM_BOT_TOKEN = get_env("TELEGRAM_BOT_TOKEN")
-TELEGRAM_ALLOWED_USERS = [
-    int(uid.strip())
-    for uid in get_env("TELEGRAM_ALLOWED_USERS", "").split(",")
-    if uid.strip()
-]
+
+# Аутентификация по паролю (задаётся в Vercel env vars)
+BOT_PASSWORD = get_env("BOT_PASSWORD", "")
 
 # Supabase
 SUPABASE_URL = get_env("SUPABASE_URL")
