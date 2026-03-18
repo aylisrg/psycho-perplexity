@@ -1,9 +1,11 @@
 """
 AI-провайдеры — синхронная версия для serverless.
 Claude, OpenAI, Custom (OpenRouter/Groq/etc.)
+Возвращает (text, usage_dict) для трекинга токенов.
 """
 import json
 import re
+import logging
 import anthropic
 import openai
 from core.config import (
@@ -14,6 +16,26 @@ from core.config import (
     DEFAULT_AI_PROVIDER,
 )
 
+logger = logging.getLogger(__name__)
+
+# Цены за 1M токенов (USD). Обнови при изменении цен.
+MODEL_PRICING = {
+    # Claude
+    "claude-sonnet-4-20250514":    {"input": 3.0,  "output": 15.0},
+    "claude-opus-4-20250514":      {"input": 15.0, "output": 75.0},
+    "claude-3-5-haiku-20241022":   {"input": 0.8,  "output": 4.0},
+    # OpenAI
+    "gpt-4o":                      {"input": 2.5,  "output": 10.0},
+    "gpt-4o-mini":                 {"input": 0.15, "output": 0.6},
+    "o1-preview":                  {"input": 15.0, "output": 60.0},
+}
+
+
+def _calc_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Посчитать стоимость запроса в USD."""
+    pricing = MODEL_PRICING.get(model, {"input": 3.0, "output": 15.0})
+    return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+
 
 def chat_claude(
     messages: list[dict],
@@ -21,8 +43,8 @@ def chat_claude(
     model: str = "",
     temperature: float = 0.75,
     max_tokens: int = 1500,
-) -> str:
-    """Запрос к Claude."""
+) -> tuple[str, dict]:
+    """Запрос к Claude. Возвращает (text, usage)."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     model = model or CLAUDE_DEFAULT_MODEL
     clean = [
@@ -36,7 +58,15 @@ def chat_claude(
         system=system_prompt,
         messages=clean,
     )
-    return response.content[0].text
+    usage = {
+        "provider": "claude",
+        "model": model,
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+        "total_tokens": response.usage.input_tokens + response.usage.output_tokens,
+    }
+    usage["cost_usd"] = _calc_cost(model, usage["input_tokens"], usage["output_tokens"])
+    return response.content[0].text, usage
 
 
 def chat_openai(
@@ -47,8 +77,8 @@ def chat_openai(
     max_tokens: int = 1500,
     base_url: str = None,
     api_key: str = None,
-) -> str:
-    """Запрос к OpenAI или совместимому API."""
+) -> tuple[str, dict]:
+    """Запрос к OpenAI или совместимому API. Возвращает (text, usage)."""
     client = openai.OpenAI(
         api_key=api_key or OPENAI_API_KEY,
         base_url=base_url,
@@ -67,7 +97,16 @@ def chat_openai(
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    return response.choices[0].message.content
+    u = response.usage
+    usage = {
+        "provider": "openai" if not base_url else "custom",
+        "model": model,
+        "input_tokens": u.prompt_tokens if u else 0,
+        "output_tokens": u.completion_tokens if u else 0,
+        "total_tokens": u.total_tokens if u else 0,
+    }
+    usage["cost_usd"] = _calc_cost(model, usage["input_tokens"], usage["output_tokens"])
+    return response.choices[0].message.content, usage
 
 
 def chat(
@@ -77,8 +116,8 @@ def chat(
     model: str = "",
     temperature: float = 0.75,
     max_tokens: int = 1500,
-) -> str:
-    """Универсальный вызов AI — автоматически выбирает провайдер."""
+) -> tuple[str, dict]:
+    """Универсальный вызов AI. Возвращает (text, usage_dict)."""
     provider = provider or DEFAULT_AI_PROVIDER
 
     if provider == "claude" and ANTHROPIC_API_KEY:
@@ -106,15 +145,15 @@ def chat_json(
     system_prompt: str = "",
     provider: str = "",
 ) -> list | dict:
-    """Вызов AI с ответом в JSON."""
-    response = chat(
+    """Вызов AI с ответом в JSON (без трекинга)."""
+    text, _usage = chat(
         messages, system_prompt + "\n\nОтвечай ТОЛЬКО валидным JSON, без маркдауна.",
         provider=provider, temperature=0.3, max_tokens=4096,
     )
     try:
-        return json.loads(response)
+        return json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r'\[.*\]|\{.*\}', response, re.DOTALL)
+        match = re.search(r'\[.*\]|\{.*\}', text, re.DOTALL)
         if match:
             return json.loads(match.group())
         return []

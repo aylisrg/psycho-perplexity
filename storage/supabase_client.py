@@ -202,6 +202,69 @@ def get_knowledge(category: Optional[str] = None) -> list[dict]:
     return query.execute().data
 
 
+# ── TOKEN USAGE ──
+
+def save_token_usage(
+    telegram_id: int, session_id: int | None, usage: dict
+):
+    """Сохранить данные о потреблённых токенах."""
+    db = _get_client()
+    db.table("token_usage").insert({
+        "telegram_id": telegram_id,
+        "session_id": session_id,
+        "provider": usage.get("provider", ""),
+        "model": usage.get("model", ""),
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+        "total_tokens": usage.get("total_tokens", 0),
+        "cost_usd": usage.get("cost_usd", 0),
+        "created_at": _now(),
+    }).execute()
+
+
+def get_usage_stats() -> dict:
+    """Общая статистика потребления."""
+    db = _get_client()
+    result = db.table("token_usage").select("*").order("created_at", desc=True).execute()
+    rows = result.data or []
+
+    total_input = sum(r.get("input_tokens", 0) for r in rows)
+    total_output = sum(r.get("output_tokens", 0) for r in rows)
+    total_cost = sum(float(r.get("cost_usd", 0)) for r in rows)
+
+    # По моделям
+    by_model = {}
+    for r in rows:
+        model = r.get("model", "unknown")
+        if model not in by_model:
+            by_model[model] = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0, "requests": 0}
+        by_model[model]["input_tokens"] += r.get("input_tokens", 0)
+        by_model[model]["output_tokens"] += r.get("output_tokens", 0)
+        by_model[model]["cost_usd"] += float(r.get("cost_usd", 0))
+        by_model[model]["requests"] += 1
+
+    # По дням (последние 30)
+    by_day = {}
+    for r in rows:
+        day = r.get("created_at", "")[:10]
+        if day not in by_day:
+            by_day[day] = {"tokens": 0, "cost_usd": 0, "requests": 0}
+        by_day[day]["tokens"] += r.get("total_tokens", 0)
+        by_day[day]["cost_usd"] += float(r.get("cost_usd", 0))
+        by_day[day]["requests"] += 1
+
+    return {
+        "total_requests": len(rows),
+        "total_input_tokens": total_input,
+        "total_output_tokens": total_output,
+        "total_tokens": total_input + total_output,
+        "total_cost_usd": round(total_cost, 4),
+        "by_model": by_model,
+        "by_day": dict(sorted(by_day.items(), reverse=True)[:30]),
+        "recent": rows[:20],
+    }
+
+
 def get_all_knowledge_for_prompt() -> str:
     db = _get_client()
     result = (

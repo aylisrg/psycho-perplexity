@@ -66,8 +66,9 @@ def process_message(telegram_id: int, user_message: str, user_name: str = "") ->
     messages.append({"role": "user", "content": user_message})
 
     # 5. Ответ
+    usage_data = None
     try:
-        response = ai_provider.chat(
+        response, usage_data = ai_provider.chat(
             messages=messages,
             system_prompt=system_prompt,
             provider=provider_key,
@@ -79,6 +80,13 @@ def process_message(telegram_id: int, user_message: str, user_name: str = "") ->
             "Прости, у меня сейчас технические трудности. "
             "Давай попробуем продолжить через минуту."
         )
+
+    # 5.5. Сохраняем usage
+    if usage_data:
+        try:
+            db.save_token_usage(telegram_id, session["id"], usage_data)
+        except Exception as e:
+            logger.error(f"Token usage save error: {e}")
 
     # 6. Сохраняем
     db.save_message(session["id"], "user", user_message)
@@ -148,11 +156,16 @@ def end_session(telegram_id: int) -> str:
     prompt = SESSION_SUMMARY_PROMPT.format(dialogue=dialogue)
 
     try:
-        summary = ai_provider.chat(
+        summary, _usage = ai_provider.chat(
             messages=[{"role": "user", "content": prompt}],
             system_prompt="Ты психотерапевт, создающий резюме сессии.",
             temperature=0.3, max_tokens=500,
         )
+        if _usage:
+            try:
+                db.save_token_usage(telegram_id, session["id"], _usage)
+            except Exception:
+                pass
     except Exception:
         summary = "Резюме не удалось создать."
 

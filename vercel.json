@@ -9,6 +9,7 @@
   "routes": [
     { "src": "/api/webhook", "dest": "/api/webhook.py" },
     { "src": "/api/setup", "dest": "/api/setup.py" },
-    { "src": "/api/health", "dest": "/api/health.py" }
+    { "src": "/api/health", "dest": "/api/health.py" },
+    { "src": "/api/usage", "dest": "/api/usage.py" }
   ]
 }

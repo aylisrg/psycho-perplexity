@@ -83,7 +83,25 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
 CREATE INDEX idx_knowledge_base_category ON knowledge_base(category);
 CREATE INDEX idx_knowledge_base_active ON knowledge_base(active);
 
--- 6. Автообновление updated_at
+-- 6. Трекинг токенов и стоимости
+CREATE TABLE IF NOT EXISTS token_usage (
+    id BIGSERIAL PRIMARY KEY,
+    telegram_id BIGINT NOT NULL,
+    session_id BIGINT,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    cost_usd NUMERIC(10, 6) DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_token_usage_telegram_id ON token_usage(telegram_id);
+CREATE INDEX idx_token_usage_session_id ON token_usage(session_id);
+CREATE INDEX idx_token_usage_created_at ON token_usage(created_at);
+
+-- 7. Автообновление updated_at
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -104,7 +122,7 @@ CREATE TRIGGER trg_knowledge_base_updated
     BEFORE UPDATE ON knowledge_base
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- 7. Row Level Security (приватность)
+-- 8. Row Level Security (приватность)
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
@@ -125,4 +143,9 @@ CREATE POLICY "Service full access" ON memory_facts
     FOR ALL USING (true) WITH CHECK (true);
 
 CREATE POLICY "Service full access" ON knowledge_base
+    FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE token_usage ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service full access" ON token_usage
     FOR ALL USING (true) WITH CHECK (true);
