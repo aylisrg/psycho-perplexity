@@ -34,9 +34,10 @@ CUSTOM_AI_NAME = get_env("CUSTOM_AI_NAME", "Custom AI")
 CUSTOM_AI_DEFAULT_MODEL = get_env("CUSTOM_AI_DEFAULT_MODEL")
 CUSTOM_AI_MODELS = get_env("CUSTOM_AI_MODELS")
 
-# Voice
+# Voice — STT через Groq (дёшево), TTS через OpenAI
 VOICE_ENABLED = get_env("VOICE_ENABLED", "true").lower() == "true"
 TTS_VOICE = get_env("TTS_VOICE", "alloy")
+GROQ_API_KEY = get_env("GROQ_API_KEY")
 
 # Session
 MAX_CONTEXT_MESSAGES = int(get_env("MAX_CONTEXT_MESSAGES", "50"))
